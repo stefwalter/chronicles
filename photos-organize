@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+
+import argparse
+import datetime
+import os
+import shutil
+import sys
+
+import exifread
+
+def normalize(path):
+    if path.endswith(".MOV"):
+        path = path[:-4] + ".mp4"
+    return path
+
+def archive(path, target):
+    stamp = 0
+    with open(path, 'rb') as f:
+        tags = exifread.process_file(f)
+    tag = tags.get("Image DateTime")
+    if not tag:
+        tag = tags.get("EXIF DatetimeOriginal")
+    if tag:
+        stamp = datetime.datetime.strptime(tag.printable, "%Y:%m:%d %H:%M:%S")
+    else:
+        stamp = datetime.date.fromtimestamp(os.path.getmtime(path))
+    dest = os.path.join(target, stamp.isoformat()[0:10])
+    os.makedirs(dest, exist_ok=True)
+    name = os.path.basename(path)
+    sys.stderr.write("{0}\n".format(name))
+    if name.endswith(".MOV"):
+        name = name[:-4] + ".mp4"
+    shutil.move(path, os.path.join(dest, name))
+
+def index(root):
+    result = { }
+    for directory, unused, names in os.walk(root):
+        for name in names:
+            result[name] = os.path.join(directory, name)
+            fixed = normalize(name)
+            result[fixed] = os.path.join(directory, name)
+    return result
+
+def process(target, root):
+    assert target != root
+    known = index(root)
+    trash = os.path.join(target, "dup")
+    for name in os.listdir(target):
+        path = os.path.join(target, name)
+        if name in known:
+            os.makedirs(trash, exist_ok=True)
+            shutil.move(path, trash)
+        elif os.path.isfile(path):
+            archive(path, target)
+
+def main(argv):
+    parser = argparse.ArgumentParser(description='Organize photos')
+    parser.add_argument('root', help="The directory to organize")
+    parser.add_argument('target', help="The directory to organize")
+    opts = parser.parse_args()
+
+    process(opts.target, opts.root)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
