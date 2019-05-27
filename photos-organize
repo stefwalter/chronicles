@@ -13,7 +13,7 @@ def normalize(path):
         path = path[:-4] + ".mp4"
     return path
 
-def archive(path, target):
+def folder(path, known):
     stamp = 0
     with open(path, 'rb') as f:
         tags = exifread.process_file(f)
@@ -24,7 +24,13 @@ def archive(path, target):
         stamp = datetime.datetime.strptime(tag.printable, "%Y:%m:%d %H:%M:%S")
     else:
         stamp = datetime.date.fromtimestamp(os.path.getmtime(path))
-    dest = os.path.join(target, stamp.isoformat()[0:10])
+    when = stamp.isoformat()[0:10]
+    if when in known:
+        return os.path.basename(known[when])
+    return when
+
+def archive(path, target, known):
+    dest = os.path.join(target, folder(path, known))
     os.makedirs(dest, exist_ok=True)
     name = os.path.basename(path)
     sys.stderr.write("{0}\n".format(name))
@@ -35,11 +41,19 @@ def archive(path, target):
 def index(root):
     result = { }
     for directory, unused, names in os.walk(root):
+        name = os.path.basename(directory)
+        (stamp, unused, description) = name.partition(' ')
+        result[stamp] = directory
         for name in names:
-            result[name] = os.path.join(directory, name)
             fixed = normalize(name)
-            result[fixed] = os.path.join(directory, name)
+            result[name] = result[fixed] = os.path.join(directory, name)
     return result
+
+def compare(path, name, known):
+    if name in known:
+        if os.stat(path).st_size == os.stat(known[name]).st_size:
+            return True
+    return False
 
 def process(target, root):
     assert target != root
@@ -47,11 +61,11 @@ def process(target, root):
     trash = os.path.join(target, "dup")
     for name in os.listdir(target):
         path = os.path.join(target, name)
-        if name in known:
+        if compare(path, name, known):
             os.makedirs(trash, exist_ok=True)
             shutil.move(path, trash)
         elif os.path.isfile(path):
-            archive(path, target)
+            archive(path, target, known)
 
 def main(argv):
     parser = argparse.ArgumentParser(description='Organize photos')
